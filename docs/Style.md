@@ -4,7 +4,7 @@ title: Style
 layout: docs
 category: Guides
 permalink: docs/style.html
-next: gesture-responder-system
+next: images
 ---
 
 React Native doesn't implement CSS but instead relies on JavaScript to let you style your application. This has been a controversial decision and you can read through those slides for the rationale behind it.
@@ -95,7 +95,8 @@ var List = React.createClass({
 
 You can checkout latest support of CSS Properties in following Links.
 
-- [View Properties](http://facebook.github.io/react-native/docs/view.html#style)
-- [Image Properties](http://facebook.github.io/react-native/docs/image.html#style)
-- [Text Properties](http://facebook.github.io/react-native/docs/text.html#style)
-- [Flex Properties](http://facebook.github.io/react-native/docs/flexbox.html#content)
+- [View Properties](/react-native/docs/view.html#style)
+- [Image Properties](/react-native/docs/image.html#style)
+- [Text Properties](/react-native/docs/text.html#style)
+- [Flex Properties](/react-native/docs/flexbox.html#content)
+- [Transform Properties](/react-native/docs/transforms.html#content)

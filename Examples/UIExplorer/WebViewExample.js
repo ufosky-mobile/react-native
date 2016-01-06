@@ -16,7 +16,6 @@
 'use strict';
 
 var React = require('react-native');
-var StyleSheet = require('StyleSheet');
 var {
   StyleSheet,
   Text,
@@ -43,6 +42,7 @@ var WebViewExample = React.createClass({
       backButtonEnabled: false,
       forwardButtonEnabled: false,
       loading: true,
+      scalesPageToFit: true,
     };
   },
 
@@ -58,24 +58,24 @@ var WebViewExample = React.createClass({
     return (
       <View style={[styles.container]}>
         <View style={[styles.addressBarRow]}>
-          <TouchableOpacity onPress={this.goBack}>
-            <View style={this.state.backButtonEnabled ? styles.navButton : styles.disabledButton}>
-              <Text>
-                 {'<'}
-              </Text>
-            </View>
+          <TouchableOpacity
+            onPress={this.goBack}
+            style={this.state.backButtonEnabled ? styles.navButton : styles.disabledButton}>
+            <Text>
+               {'<'}
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={this.goForward}>
-            <View style={this.state.forwardButtonEnabled ? styles.navButton : styles.disabledButton}>
-              <Text>
-                {'>'}
-              </Text>
-            </View>
+          <TouchableOpacity
+            onPress={this.goForward}
+            style={this.state.forwardButtonEnabled ? styles.navButton : styles.disabledButton}>
+            <Text>
+              {'>'}
+            </Text>
           </TouchableOpacity>
           <TextInput
             ref={TEXT_INPUT_REF}
             autoCapitalize="none"
-            value={this.state.url}
+            defaultValue={this.state.url}
             onSubmitEditing={this.onSubmitEditing}
             onChange={this.handleTextInputChange}
             clearButtonMode="while-editing"
@@ -94,8 +94,12 @@ var WebViewExample = React.createClass({
           automaticallyAdjustContentInsets={false}
           style={styles.webView}
           url={this.state.url}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
           onNavigationStateChange={this.onNavigationStateChange}
+          onShouldStartLoadWithRequest={this.onShouldStartLoadWithRequest}
           startInLoadingState={true}
+          scalesPageToFit={this.state.scalesPageToFit}
         />
         <View style={styles.statusBar}>
           <Text style={styles.statusBarText}>{this.state.status}</Text>
@@ -116,6 +120,11 @@ var WebViewExample = React.createClass({
     this.refs[WEBVIEW_REF].reload();
   },
 
+  onShouldStartLoadWithRequest: function(event) {
+    // Implement any custom loading logic here, don't forget to return!
+    return true;
+  },
+
   onNavigationStateChange: function(navState) {
     this.setState({
       backButtonEnabled: navState.canGoBack,
@@ -123,6 +132,7 @@ var WebViewExample = React.createClass({
       url: navState.url,
       status: navState.title,
       loading: navState.loading,
+      scalesPageToFit: true
     });
   },
 
@@ -139,7 +149,7 @@ var WebViewExample = React.createClass({
         url: url,
       });
     }
-    // dismiss keyoard
+    // dismiss keyboard
     this.refs[TEXT_INPUT_REF].blur();
   },
 
@@ -216,6 +226,7 @@ var styles = StyleSheet.create({
   },
 });
 
+exports.displayName = (undefined: ?string);
 exports.title = '<WebView>';
 exports.description = 'Base component to display web content';
 exports.examples = [

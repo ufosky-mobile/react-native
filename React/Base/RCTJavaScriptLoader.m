@@ -1,138 +1,112 @@
-// Copyright 2004-present Facebook. All Rights Reserved.
+/**
+ * Copyright (c) 2015-present, Facebook, Inc.
+ * All rights reserved.
+ *
+ * This source code is licensed under the BSD-style license found in the
+ * LICENSE file in the root directory of this source tree. An additional grant
+ * of patent rights can be found in the PATENTS file in the same directory.
+ */
 
 #import "RCTJavaScriptLoader.h"
 
 #import "RCTBridge.h"
-#import "RCTInvalidating.h"
-#import "RCTLog.h"
-#import "RCTRedBox.h"
+#import "RCTConvert.h"
 #import "RCTSourceCode.h"
 #import "RCTUtils.h"
+#import "RCTPerformanceLogger.h"
 
-#define NO_REMOTE_MODULE @"Could not fetch module bundle %@. Ensure node server is running.\n\nIf it timed out, try reloading."
-#define NO_LOCAL_BUNDLE @"Could not load local bundle %@. Ensure file exists."
-
-#define CACHE_DIR @"RCTJSBundleCache"
-
-#pragma mark - Application Engine
-
-/**
- * TODO:
- * - Add window resize rotation events matching the DOM API.
- * - Device pixel ration hooks.
- * - Source maps.
- */
 @implementation RCTJavaScriptLoader
-{
-  RCTBridge *_bridge;
-}
 
-/**
- * `CADisplayLink` code copied from Ejecta but we've placed the JavaScriptCore
- * engine in its own dedicated thread.
- *
- * TODO: Try adding to the `RCTJavaScriptExecutor`'s thread runloop. Removes one
- * additional GCD dispatch per frame and likely makes it so that other UIThread
- * operations don't delay the dispatch (so we can begin working in JS much
- * faster.) Event handling must still be sent via a GCD dispatch, of course.
- *
- * We must add the display link to two runloops in order to get setTimeouts to
- * fire during scrolling. (`NSDefaultRunLoopMode` and `UITrackingRunLoopMode`)
- * TODO: We can invent a `requestAnimationFrame` and
- * `requestAvailableAnimationFrame` to control if callbacks can be fired during
- * an animation.
- * http://stackoverflow.com/questions/12622800/why-does-uiscrollview-pause-my-cadisplaylink
- *
- */
-- (instancetype)initWithBridge:(RCTBridge *)bridge
-{
-  RCTAssertMainThread();
-  if (self = [super init]) {
-    _bridge = bridge;
-  }
-  return self;
-}
+RCT_NOT_IMPLEMENTED(- (instancetype)init)
 
-- (void)loadBundleAtURL:(NSURL *)scriptURL onComplete:(void (^)(NSError *))onComplete
++ (void)loadBundleAtURL:(NSURL *)scriptURL onComplete:(RCTSourceLoadBlock)onComplete
 {
-  if (scriptURL == nil) {
-    NSError *error = [NSError errorWithDomain:@"JavaScriptLoader"
-                                         code:1
-                                     userInfo:@{NSLocalizedDescriptionKey: @"No script URL provided"}];
-    onComplete(error);
+  // Sanitize the script URL
+  scriptURL = [RCTConvert NSURL:scriptURL.absoluteString];
+
+  if (!scriptURL) {
+    NSError *error = [NSError errorWithDomain:@"JavaScriptLoader" code:1 userInfo:@{
+      NSLocalizedDescriptionKey: @"No script URL provided."
+    }];
+    onComplete(error, nil);
     return;
-  } else if ([scriptURL isFileURL]) {
-    NSString *bundlePath = [[NSBundle bundleForClass:[self class]] resourcePath];
-    NSString *localPath = [scriptURL.absoluteString substringFromIndex:@"file://".length];
-
-    if (![localPath hasPrefix:bundlePath]) {
-      NSString *absolutePath = [NSString stringWithFormat:@"%@/%@", bundlePath, localPath];
-      scriptURL = [NSURL fileURLWithPath:absolutePath];
-    }
   }
 
+  // Load local script file
+  if (scriptURL.fileURL) {
+    NSString *filePath = scriptURL.path;
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+      NSError *error = nil;
+      NSData *source = [NSData dataWithContentsOfFile:filePath
+                                              options:NSDataReadingMappedIfSafe
+                                                error:&error];
+      RCTPerformanceLoggerSet(RCTPLBundleSize, source.length);
+      onComplete(error, source);
+    });
+    return;
+  }
+
+  // Load remote script file
   NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:scriptURL completionHandler:
                                 ^(NSData *data, NSURLResponse *response, NSError *error) {
 
-                                  // Handle general request errors
-                                  if (error) {
-                                    if ([[error domain] isEqualToString:NSURLErrorDomain]) {
-                                      NSDictionary *userInfo = @{
-                                                                 NSLocalizedDescriptionKey: @"Could not connect to development server. Ensure node server is running - run 'npm start' from ReactKit root",
-                                                                 NSLocalizedFailureReasonErrorKey: [error localizedDescription],
-                                                                 NSUnderlyingErrorKey: error,
-                                                                 };
-                                      error = [NSError errorWithDomain:@"JSServer"
-                                                                  code:error.code
-                                                              userInfo:userInfo];
-                                    }
-                                    onComplete(error);
-                                    return;
-                                  }
+    // Handle general request errors
+    if (error) {
+      if ([error.domain isEqualToString:NSURLErrorDomain]) {
+        NSString *desc = [@"Could not connect to development server.\n\nEnsure the following:\n- Node server is running and available on the same network - run 'npm start' from react-native root\n- Node server URL is correctly set in AppDelegate\n\nURL: " stringByAppendingString:scriptURL.absoluteString];
+        NSDictionary *userInfo = @{
+          NSLocalizedDescriptionKey: desc,
+          NSLocalizedFailureReasonErrorKey: error.localizedDescription,
+          NSUnderlyingErrorKey: error,
+        };
+        error = [NSError errorWithDomain:@"JSServer"
+                                    code:error.code
+                                userInfo:userInfo];
+      }
+      onComplete(error, nil);
+      return;
+    }
 
-                                  // Parse response as text
-                                  NSStringEncoding encoding = NSUTF8StringEncoding;
-                                  if (response.textEncodingName != nil) {
-                                    CFStringEncoding cfEncoding = CFStringConvertIANACharSetNameToEncoding((CFStringRef)response.textEncodingName);
-                                    if (cfEncoding != kCFStringEncodingInvalidId) {
-                                      encoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding);
-                                    }
-                                  }
-                                  NSString *rawText = [[NSString alloc] initWithData:data encoding:encoding];
+    // Parse response as text
+    NSStringEncoding encoding = NSUTF8StringEncoding;
+    if (response.textEncodingName != nil) {
+      CFStringEncoding cfEncoding = CFStringConvertIANACharSetNameToEncoding((CFStringRef)response.textEncodingName);
+      if (cfEncoding != kCFStringEncodingInvalidId) {
+        encoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding);
+      }
+    }
+    // Handle HTTP errors
+    if ([response isKindOfClass:[NSHTTPURLResponse class]] && ((NSHTTPURLResponse *)response).statusCode != 200) {
+      NSString *rawText = [[NSString alloc] initWithData:data encoding:encoding];
+      NSDictionary *userInfo;
+      NSDictionary *errorDetails = RCTJSONParse(rawText, nil);
+      if ([errorDetails isKindOfClass:[NSDictionary class]] &&
+          [errorDetails[@"errors"] isKindOfClass:[NSArray class]]) {
+        NSMutableArray<NSDictionary *> *fakeStack = [NSMutableArray new];
+        for (NSDictionary *err in errorDetails[@"errors"]) {
+          [fakeStack addObject: @{
+            @"methodName": err[@"description"] ?: @"",
+            @"file": err[@"filename"] ?: @"",
+            @"lineNumber": err[@"lineNumber"] ?: @0
+          }];
+        }
+        userInfo = @{
+          NSLocalizedDescriptionKey: errorDetails[@"message"] ?: @"No message provided",
+          @"stack": fakeStack,
+        };
+      } else {
+        userInfo = @{NSLocalizedDescriptionKey: rawText};
+      }
+      error = [NSError errorWithDomain:@"JSServer"
+                                  code:((NSHTTPURLResponse *)response).statusCode
+                              userInfo:userInfo];
 
-                                  // Handle HTTP errors
-                                  if ([response isKindOfClass:[NSHTTPURLResponse class]] && [(NSHTTPURLResponse *)response statusCode] != 200) {
-                                    NSDictionary *userInfo;
-                                    NSDictionary *errorDetails = RCTJSONParse(rawText, nil);
-                                    if ([errorDetails isKindOfClass:[NSDictionary class]]) {
-                                      userInfo = @{
-                                                   NSLocalizedDescriptionKey: errorDetails[@"message"] ?: @"No message provided",
-                                                   @"stack": @[@{
-                                                                 @"methodName": errorDetails[@"description"] ?: @"",
-                                                                 @"file": errorDetails[@"filename"] ?: @"",
-                                                                 @"lineNumber": errorDetails[@"lineNumber"] ?: @0
-                                                                 }]
-                                                   };
-                                    } else {
-                                      userInfo = @{NSLocalizedDescriptionKey: rawText};
-                                    }
-                                    error = [NSError errorWithDomain:@"JSServer"
-                                                                code:[(NSHTTPURLResponse *)response statusCode]
-                                                            userInfo:userInfo];
-
-                                    onComplete(error);
-                                    return;
-                                  }
-                                  RCTSourceCode *sourceCodeModule = _bridge.modules[NSStringFromClass([RCTSourceCode class])];
-                                  sourceCodeModule.scriptURL = scriptURL;
-                                  sourceCodeModule.scriptText = rawText;
-
-                                  [_bridge enqueueApplicationScript:rawText url:scriptURL onComplete:^(NSError *_error) {
-                                    dispatch_async(dispatch_get_main_queue(), ^{
-                                      onComplete(_error);
-                                    });
-                                  }];
-                                }];
+      onComplete(error, nil);
+      return;
+    }
+    RCTPerformanceLoggerSet(RCTPLBundleSize, data.length);
+    onComplete(nil, data);
+  }];
 
   [task resume];
 }

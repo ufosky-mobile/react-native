@@ -26,7 +26,7 @@ glob('src/**/*.*', function(er, files) {
   files.forEach(function(file) {
     var targetFile = file.replace(/^src/, 'build');
 
-    if (file.match(/\.js$/)) {
+    if (file.match(/\.js$/) && !file.match(/src\/react-native\/js/)) {
       targetFile = targetFile.replace(/\.js$/, '.html');
       queue = queue.then(function() {
         return new Promise(function(resolve, reject) {
@@ -36,7 +36,7 @@ glob('src/**/*.*', function(er, files) {
               return;
             }
             if (response.statusCode != 200) {
-              reject(new Error('Status ' + response.statusCode + ':\n' + body)); 
+              reject(new Error('Status ' + response.statusCode + ':\n' + body));
               return;
             }
             mkdirp.sync(targetFile.replace(new RegExp('/[^/]*$'), ''));
